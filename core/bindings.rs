@@ -300,7 +300,6 @@ fn opcall<'s>(
 
   let op_state = state.op_state.clone();
   OpTable::route_op(op_id, &mut state, op_state, scope, args, &mut rv);
-  }
 }
 
 fn set_macrotask_callback(

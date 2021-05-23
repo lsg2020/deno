@@ -118,6 +118,8 @@
 
   function opSync(opName, arg1 = null, arg2 = null) {
     return unwrapOpResult(dispatch(opName, null, arg1, arg2));
+  }
+
   function opRawSync(opName, ...params) {
     return opcall(opsCache[opName], ...params);
   }
