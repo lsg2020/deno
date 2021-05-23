@@ -140,6 +140,10 @@
     return unwrapOpResult(dispatch(opName, null, arg1, arg2));
   }
 
+  function opRawSync(opName, ...params) {
+    return opcall(opsCache[opName], ...params);
+  }
+
   function resources() {
     return ObjectFromEntries(opSync("op_resources"));
   }
@@ -173,6 +177,7 @@
   const core = ObjectAssign(globalThis.Deno.core, {
     opAsync,
     opSync,
+    opRawSync,
     ops,
     close,
     print,

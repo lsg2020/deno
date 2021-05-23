@@ -2,6 +2,7 @@
 use deno_core::Snapshot;
 use log::debug;
 
+pub static TARGET: &str = env!("TARGET");
 pub static CLI_SNAPSHOT: &[u8] =
   include_bytes!(concat!(env!("OUT_DIR"), "/CLI_SNAPSHOT.bin"));
 

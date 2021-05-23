@@ -16,10 +16,12 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::rc::Rc;
+use crate::runtime::JsRuntimeState;
 
 pub type PromiseId = u64;
 pub type OpAsyncFuture = Pin<Box<dyn Future<Output = (PromiseId, OpResult)>>>;
 pub type OpFn = dyn Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static;
+pub type OpFnEx = dyn Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static;
 pub type OpId = usize;
 
 pub struct OpPayload<'a, 'b, 'c> {
@@ -126,12 +128,12 @@ impl DerefMut for OpState {
 
 /// Collection for storing registered ops. The special 'get_op_catalog'
 /// op with OpId `0` is automatically added when the OpTable is created.
-pub struct OpTable(IndexMap<String, Rc<OpFn>>);
+pub struct OpTable(IndexMap<String, Rc<OpFnEx>>);
 
 impl OpTable {
   pub fn register_op<F>(&mut self, name: &str, op_fn: F) -> OpId
   where
-    F: Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static,
+    F: Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
   {
     let (op_id, prev) = self.0.insert_full(name.to_owned(), Rc::new(op_fn));
     assert!(prev.is_none());
@@ -144,25 +146,37 @@ impl OpTable {
 
   pub fn route_op(
     op_id: OpId,
-    state: Rc<RefCell<OpState>>,
-    payload: OpPayload,
-  ) -> Op {
-    let op_fn = state
+    state: std::cell::RefMut<JsRuntimeState>,
+    op_state: Rc<RefCell<OpState>>,
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    rv: &mut v8::ReturnValue,
+  ) {
+    let op_fn = op_state
       .borrow()
       .op_table
       .0
       .get_index(op_id)
       .map(|(_, op_fn)| op_fn.clone());
     match op_fn {
-      Some(f) => (f)(state, payload),
-      None => Op::NotFound,
-    }
+      Some(f) => {
+        (f)(state, op_state, scope, args, rv);
+        1
+      },
+      None => 0,
+    };
   }
 }
 
 impl Default for OpTable {
   fn default() -> Self {
-    fn dummy(_state: Rc<RefCell<OpState>>, _p: OpPayload) -> Op {
+    fn dummy(
+      _state: std::cell::RefMut<JsRuntimeState>,
+      _op_state: Rc<RefCell<OpState>>, 
+      _scope: &mut v8::HandleScope,
+      _args: v8::FunctionCallbackArguments,
+      _rv: &mut v8::ReturnValue,
+    ) {
       unreachable!()
     }
     Self(once(("ops".to_owned(), Rc::new(dummy) as _)).collect())

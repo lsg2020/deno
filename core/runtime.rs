@@ -131,7 +131,7 @@ impl SharedArrayBufferStore {
 
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
-pub(crate) struct JsRuntimeState {
+pub struct JsRuntimeState {
   pub global_context: Option<v8::Global<v8::Context>>,
   pub(crate) js_recv_cb: Option<v8::Global<v8::Function>>,
   pub(crate) js_macrotask_cb: Option<v8::Global<v8::Function>>,
@@ -149,7 +149,7 @@ pub(crate) struct JsRuntimeState {
   pub(crate) have_unpolled_ops: bool,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
-  waker: AtomicWaker,
+  pub(crate) waker: AtomicWaker,
 }
 
 impl Drop for JsRuntime {
@@ -290,6 +290,10 @@ impl JsRuntime {
       let isolate = v8::Isolate::new(params);
       let mut isolate = JsRuntime::setup_isolate(isolate);
       {
+        let _isolate_scope = v8::IsolateScope::new(&mut isolate);
+        let _locker = v8::Locker::new(&mut isolate, std::ptr::null_mut());
+        let _auto_check = IsolateAutoCheck::new(&mut isolate);
+
         let scope = &mut v8::HandleScope::new(&mut isolate);
         let context = if snapshot_loaded {
           v8::Context::new(scope)
@@ -303,8 +307,13 @@ impl JsRuntime {
       (isolate, None)
     };
 
-    let inspector =
-      JsRuntimeInspector::new(&mut isolate, global_context.clone());
+    let inspector = {
+      let _isolate_scope = v8::IsolateScope::new(&mut isolate);
+      let _locker = v8::Locker::new(&mut isolate, std::ptr::null_mut());
+      let _auto_check = IsolateAutoCheck::new(&mut isolate);
+
+      JsRuntimeInspector::new(&mut isolate, global_context.clone())
+    };
 
     let loader = options
       .module_loader
@@ -356,6 +365,10 @@ impl JsRuntime {
       extensions: options.extensions,
     };
 
+    let _isolate_scope = v8::IsolateScope::new(&mut js_runtime.v8_isolate());
+    let _locker = v8::Locker::new(&mut js_runtime.v8_isolate(), std::ptr::null_mut());
+    let _auto_check = IsolateAutoCheck::new(&mut js_runtime.v8_isolate());
+
     // TODO(@AaronO): diff extensions inited in snapshot and those provided
     // for now we assume that snapshot and extensions always match
     if !has_startup_snapshot {
@@ -401,7 +414,7 @@ impl JsRuntime {
     isolate
   }
 
-  pub(crate) fn state(isolate: &v8::Isolate) -> Rc<RefCell<JsRuntimeState>> {
+  pub fn state(isolate: &v8::Isolate) -> Rc<RefCell<JsRuntimeState>> {
     let s = isolate.get_slot::<Rc<RefCell<JsRuntimeState>>>().unwrap();
     s.clone()
   }
@@ -451,6 +464,10 @@ impl JsRuntime {
       let ops = e.init_ops().unwrap_or_default();
       for (name, opfn) in ops {
         self.register_op(name, macroware(name, opfn));
+      }
+      let ops_ex = e.init_ops_ex().unwrap_or_default();
+      for (name, opfn) in ops_ex {
+        self.register_op_ex(name, opfn);
       }
     }
     // Sync ops cache
@@ -590,6 +607,13 @@ impl JsRuntime {
   where
     F: Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static,
   {
+    self.register_op_ex(name, crate::op_json2raw(op_fn))
+  }
+
+  pub fn register_op_ex<F>(&mut self, name: &str, op_fn: F) -> OpId
+  where
+    F: Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
+  {
     Self::state(self.v8_isolate())
       .borrow_mut()
       .op_state
@@ -705,7 +729,7 @@ impl JsRuntime {
     // Top level module
     self.evaluate_pending_module();
 
-    let mut state = state_rc.borrow_mut();
+    let state = state_rc.borrow_mut();
     let module_map = module_map_rc.borrow();
 
     let has_pending_ops = !state.pending_ops.is_empty();
@@ -759,6 +783,7 @@ impl JsRuntime {
       }
     }
 
+    /*
     if has_pending_dyn_module_evaluation {
       if has_pending_ops
         || has_pending_dyn_imports
@@ -783,6 +808,7 @@ Pending dynamic modules:\n".to_string();
         state.waker.wake();
       }
     }
+    */
 
     Poll::Pending
   }
@@ -809,7 +835,7 @@ impl JsRuntimeState {
   }
 }
 
-pub(crate) fn exception_to_err_result<'s, T>(
+pub fn exception_to_err_result<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   exception: v8::Local<v8::Value>,
   in_promise: bool,
@@ -954,7 +980,10 @@ impl JsRuntime {
         module: module_global,
       };
 
-      state.pending_dyn_mod_evaluate.push(dyn_import_mod_evaluate);
+      state
+        .pending_dyn_mod_evaluate
+        .push(dyn_import_mod_evaluate);
+      state.waker.wake();  
     } else {
       assert!(status == v8::ModuleStatus::Errored);
     }
@@ -1279,6 +1308,13 @@ impl JsRuntime {
         match promise_state {
           v8::PromiseState::Pending => {
             still_pending.push(pending_dyn_evaluate);
+            //state_rc
+            //  .borrow_mut()
+            //  .pending_dyn_mod_evaluate
+            //  .push_back(pending_dyn_evaluate);
+            state_rc
+              .borrow_mut()
+              .waker.wake();
             None
           }
           v8::PromiseState::Fulfilled => {
@@ -1378,7 +1414,7 @@ impl JsRuntime {
     async_responses
   }
 
-  fn check_promise_exceptions(&mut self) -> Result<(), AnyError> {
+  pub fn check_promise_exceptions(&mut self) -> Result<(), AnyError> {
     let state_rc = Self::state(self.v8_isolate());
     let mut state = state_rc.borrow_mut();
 
@@ -1475,6 +1511,21 @@ impl JsRuntime {
     Ok(())
   }
 }
+
+pub struct IsolateAutoCheck(*mut v8::Isolate);
+impl IsolateAutoCheck {
+    pub fn new(isolate: &mut v8::Isolate) -> Self {
+        Self(isolate)
+    }
+}
+
+impl Drop for IsolateAutoCheck {
+    fn drop(&mut self) {
+        let isolate = unsafe { &mut *self.0 };
+        let _ = v8::HandleScope::new(isolate);
+    }
+}
+
 
 #[cfg(test)]
 pub mod tests {

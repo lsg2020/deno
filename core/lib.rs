@@ -67,6 +67,7 @@ pub use crate::ops::serialize_op_result;
 pub use crate::ops::Op;
 pub use crate::ops::OpAsyncFuture;
 pub use crate::ops::OpFn;
+pub use crate::ops::OpFnEx;
 pub use crate::ops::OpId;
 pub use crate::ops::OpPayload;
 pub use crate::ops::OpResult;
@@ -79,18 +80,24 @@ pub use crate::ops_builtin::op_resources;
 pub use crate::ops_json::op_async;
 pub use crate::ops_json::op_async_unref;
 pub use crate::ops_json::op_sync;
+pub use crate::ops_json::op_json2raw;
 pub use crate::resources::Resource;
 pub use crate::resources::ResourceId;
 pub use crate::resources::ResourceTable;
 pub use crate::runtime::GetErrorClassFn;
 pub use crate::runtime::JsErrorCreateFn;
 pub use crate::runtime::JsRuntime;
+pub use crate::runtime::JsRuntimeState;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::Snapshot;
 // pub use crate::runtime_modules::include_js_files!;
 pub use crate::extensions::Extension;
 pub use crate::extensions::OpMiddlewareFn;
 pub use crate::extensions::OpPair;
+pub use crate::extensions::SourcePair;
+
+pub use crate::runtime::IsolateAutoCheck;
+pub use crate::runtime::exception_to_err_result;
 
 pub fn v8_version() -> &'static str {
   v8::V8::get_version()
