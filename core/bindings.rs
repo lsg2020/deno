@@ -2,11 +2,8 @@
 
 use crate::error::AnyError;
 use crate::JsRuntime;
-use crate::Op;
 use crate::OpId;
-use crate::OpPayload;
 use crate::OpTable;
-use crate::PromiseId;
 use crate::ZeroCopyBuf;
 use log::debug;
 use rusty_v8 as v8;
@@ -300,51 +297,9 @@ fn opcall<'s>(
     return;
   }
 
-  // PromiseId
-  let arg1 = args.get(1);
-  let promise_id = if arg1.is_null_or_undefined() {
-    Ok(0) // Accept null or undefined as 0
-  } else {
-    // Otherwise expect int
-    v8::Local::<v8::Integer>::try_from(arg1)
-      .map(|l| l.value() as PromiseId)
-      .map_err(AnyError::from)
-  };
-  // Fail if promise id invalid (not null/undefined or int)
-  let promise_id: PromiseId = match promise_id {
-    Ok(promise_id) => promise_id,
-    Err(err) => {
-      throw_type_error(scope, format!("invalid promise id: {}", err));
-      return;
-    }
-  };
 
-  // Deserializable args (may be structured args or ZeroCopyBuf)
-  let a = args.get(2);
-  let b = args.get(3);
-
-  let payload = OpPayload {
-    scope,
-    a,
-    b,
-    promise_id,
-  };
-  let op = OpTable::route_op(op_id, state.op_state.clone(), payload);
-  match op {
-    Op::Sync(result) => {
-      rv.set(result.to_v8(scope).unwrap());
-    }
-    Op::Async(fut) => {
-      state.pending_ops.push(fut);
-      state.have_unpolled_ops = true;
-    }
-    Op::AsyncUnref(fut) => {
-      state.pending_unref_ops.push(fut);
-      state.have_unpolled_ops = true;
-    }
-    Op::NotFound => {
-      throw_type_error(scope, format!("Unknown op id: {}", op_id));
-    }
+  let op_state = state.op_state.clone();
+  OpTable::route_op(op_id, &mut state, op_state, scope, args, &mut rv);
   }
 }
 
@@ -702,7 +657,7 @@ fn get_proxy_details(
   rv.set(to_v8(scope, p).unwrap());
 }
 
-fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
+pub fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
   let message = v8::String::new(scope, message.as_ref()).unwrap();
   let exception = v8::Exception::type_error(scope, message);
   scope.throw_exception(exception);

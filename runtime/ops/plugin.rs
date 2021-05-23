@@ -61,7 +61,7 @@ pub fn op_open_plugin(
   extension.init_state(state)?;
   let ops = extension.init_ops().unwrap_or_default();
   for (name, opfn) in ops {
-    state.op_table.register_op(name, opfn);
+    state.op_table.register_op(name, deno_core::op_json2raw(opfn));
   }
 
   Ok(rid)

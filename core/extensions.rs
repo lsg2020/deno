@@ -1,8 +1,9 @@
 use crate::error::AnyError;
-use crate::{OpFn, OpState};
+use crate::{OpFn, OpFnEx, OpState};
 
 pub type SourcePair = (&'static str, &'static str);
 pub type OpPair = (&'static str, Box<OpFn>);
+pub type OpPairEx = (&'static str, Box<OpFnEx>);
 pub type OpMiddlewareFn = dyn Fn(&'static str, Box<OpFn>) -> Box<OpFn>;
 pub type OpStateFn = dyn Fn(&mut OpState) -> Result<(), AnyError>;
 
@@ -10,6 +11,7 @@ pub type OpStateFn = dyn Fn(&mut OpState) -> Result<(), AnyError>;
 pub struct Extension {
   js_files: Option<Vec<SourcePair>>,
   ops: Option<Vec<OpPair>>,
+  ops_ex: Option<Vec<OpPairEx>>,
   opstate_fn: Option<Box<OpStateFn>>,
   middleware_fn: Option<Box<OpMiddlewareFn>>,
   initialized: bool,
@@ -42,6 +44,10 @@ impl Extension {
     self.ops.take()
   }
 
+  pub fn init_ops_ex(&mut self) -> Option<Vec<OpPairEx>> {
+    self.ops_ex.take()
+  }
+
   /// Allows setting up the initial op-state of an isolate at startup.
   pub fn init_state(&self, state: &mut OpState) -> Result<(), AnyError> {
     match &self.opstate_fn {
@@ -61,6 +67,7 @@ impl Extension {
 pub struct ExtensionBuilder {
   js: Vec<SourcePair>,
   ops: Vec<OpPair>,
+  ops_ex: Vec<OpPairEx>,
   state: Option<Box<OpStateFn>>,
   middleware: Option<Box<OpMiddlewareFn>>,
 }
@@ -73,6 +80,11 @@ impl ExtensionBuilder {
 
   pub fn ops(&mut self, ops: Vec<OpPair>) -> &mut Self {
     self.ops.extend(ops);
+    self
+  }
+
+  pub fn ops_ex(&mut self, ops: Vec<OpPairEx>) -> &mut Self {
+    self.ops_ex.extend(ops);
     self
   }
 
@@ -95,9 +107,11 @@ impl ExtensionBuilder {
   pub fn build(&mut self) -> Extension {
     let js_files = Some(std::mem::take(&mut self.js));
     let ops = Some(std::mem::take(&mut self.ops));
+    let ops_ex = Some(std::mem::take(&mut self.ops_ex));
     Extension {
       js_files,
       ops,
+      ops_ex,
       opstate_fn: self.state.take(),
       middleware_fn: self.middleware.take(),
       initialized: false,

@@ -4,12 +4,19 @@ use crate::error::AnyError;
 use crate::serialize_op_result;
 use crate::Op;
 use crate::OpFn;
+use crate::OpFnEx;
 use crate::OpState;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::future::Future;
 use std::rc::Rc;
+
+use std::convert::TryFrom;
+use crate::PromiseId;
+use crate::OpPayload;
+use crate::runtime::JsRuntimeState;
+use rusty_v8 as v8;
 
 /// Creates an op that passes data synchronously using JSON.
 ///
@@ -97,6 +104,79 @@ where
       .map(move |result| (pid, serialize_op_result(result, state)));
     Op::Async(Box::pin(fut))
   })
+}
+
+pub fn op_json2raw<F>(op_fn: F) -> Box<OpFnEx>
+where
+F: Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static,
+{
+  Box::new(move |state: &mut JsRuntimeState, op_state: Rc<RefCell<OpState>>, scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, rv: &mut v8::ReturnValue| {
+    // PromiseId
+    let arg1 = args.get(1);
+    let promise_id = if arg1.is_null_or_undefined() {
+      Ok(0) // Accept null or undefined as 0
+    } else {
+      // Otherwise expect int
+      v8::Local::<v8::Integer>::try_from(arg1)
+        .map(|l| l.value() as PromiseId)
+        .map_err(AnyError::from)
+    };
+    // Fail if promise id invalid (not null/undefined or int)
+    let promise_id: PromiseId = match promise_id {
+      Ok(promise_id) => promise_id,
+      Err(err) => {
+        crate::bindings::throw_type_error(scope, format!("invalid promise id: {}", err));
+        return;
+      }
+    };
+
+    // Deserializable args (may be structured args or ZeroCopyBuf)
+    let a = args.get(2);
+    let b = args.get(3);
+
+    let payload = OpPayload {
+      scope,
+      a,
+      b,
+      promise_id,
+    };
+
+    let op = op_fn(op_state, payload);
+    match op {
+      Op::Sync(result) => {
+        rv.set(result.to_v8(scope).unwrap());
+      }
+      Op::Async(fut) => {
+        state.pending_ops.push(fut);
+        state.have_unpolled_ops = true;
+      }
+      Op::AsyncUnref(fut) => {
+        state.pending_unref_ops.push(fut);
+        state.have_unpolled_ops = true;
+      }
+      Op::NotFound => {
+        crate::bindings::throw_type_error(scope, format!("Unknown op"));
+      }
+    };
+  })
+}
+
+#[macro_export]
+macro_rules! get_args {
+    ($scope: expr, $type: ty, $args: expr, $index: expr) => {
+        {
+            match v8::Local::<$type>::try_from($args.get($index)).map_err(AnyError::from) {
+                Ok(v) => v,
+                Err(err) => {
+                    let msg = format!("invalid argument at position {}: {}", $index, err);
+                    let msg = v8::String::new($scope, &msg).unwrap();
+                    let exc = v8::Exception::type_error($scope, msg);
+                    $scope.throw_exception(exc);
+                    return;
+                }
+            }
+        }
+    };
 }
 
 #[cfg(test)]
