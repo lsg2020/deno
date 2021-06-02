@@ -108,7 +108,7 @@ pub struct JsRuntimeState {
   pub(crate) pending_unref_ops: FuturesUnordered<PendingOpFuture>,
   pub(crate) have_unpolled_ops: bool,
   pub(crate) op_state: Rc<RefCell<OpState>>,
-  waker: AtomicWaker,
+  pub(crate) waker: AtomicWaker,
 }
 
 impl Drop for JsRuntime {
@@ -591,12 +591,6 @@ impl JsRuntime {
     poll_fn(|cx| self.poll_event_loop(cx)).await
   }
 
-  pub fn register_waker(&mut self, cx: &mut Context) {
-    let state_rc = Self::state(self.v8_isolate());
-    let state = state_rc.borrow();
-    state.waker.register(cx.waker());
-  }
-
   /// Runs a single tick of event loop
   pub fn poll_event_loop(
     &mut self,
@@ -605,8 +599,8 @@ impl JsRuntime {
     let state_rc = Self::state(self.v8_isolate());
     let module_map_rc = Self::module_map(self.v8_isolate());
     {
-      //let state = state_rc.borrow();
-      //state.waker.register(cx.waker());
+      let state = state_rc.borrow();
+      state.waker.register(cx.waker());
     }
 
     // Ops

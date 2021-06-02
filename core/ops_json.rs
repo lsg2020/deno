@@ -148,11 +148,13 @@ F: Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static,
       }
       Op::Async(fut) => {
         state.pending_ops.push(fut);
-        state.have_unpolled_ops = true;
+        //state.have_unpolled_ops = true;
+        state.waker.wake();
       }
       Op::AsyncUnref(fut) => {
         state.pending_unref_ops.push(fut);
-        state.have_unpolled_ops = true;
+        //state.have_unpolled_ops = true;
+        state.waker.wake();
       }
       Op::NotFound => {
         crate::bindings::throw_type_error(scope, format!("Unknown op"));
