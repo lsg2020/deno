@@ -276,7 +276,7 @@ fn opcall<'s>(
   mut rv: v8::ReturnValue,
 ) {
   let state_rc = JsRuntime::state(scope);
-  let mut state = state_rc.borrow_mut();
+  let state = state_rc.borrow_mut();
 
   let op_id = match v8::Local::<v8::Integer>::try_from(args.get(0))
     .map(|l| l.value() as OpId)
@@ -299,7 +299,7 @@ fn opcall<'s>(
 
 
   let op_state = state.op_state.clone();
-  OpTable::route_op(op_id, &mut state, op_state, scope, args, &mut rv);
+  OpTable::route_op(op_id, state, op_state, scope, args, &mut rv);
 }
 
 fn set_macrotask_callback(

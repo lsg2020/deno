@@ -21,7 +21,7 @@ use crate::runtime::JsRuntimeState;
 pub type PromiseId = u64;
 pub type OpAsyncFuture = Pin<Box<dyn Future<Output = (PromiseId, OpResult)>>>;
 pub type OpFn = dyn Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static;
-pub type OpFnEx = dyn Fn(&mut JsRuntimeState, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static;
+pub type OpFnEx = dyn Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static;
 pub type OpId = usize;
 
 pub struct OpPayload<'a, 'b, 'c> {
@@ -133,7 +133,7 @@ pub struct OpTable(IndexMap<String, Rc<OpFnEx>>);
 impl OpTable {
   pub fn register_op<F>(&mut self, name: &str, op_fn: F) -> OpId
   where
-    F: Fn(&mut JsRuntimeState, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
+    F: Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
   {
     let (op_id, prev) = self.0.insert_full(name.to_owned(), Rc::new(op_fn));
     assert!(prev.is_none());
@@ -146,7 +146,7 @@ impl OpTable {
 
   pub fn route_op(
     op_id: OpId,
-    state: &mut JsRuntimeState,
+    state: std::cell::RefMut<JsRuntimeState>,
     op_state: Rc<RefCell<OpState>>,
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -171,7 +171,7 @@ impl OpTable {
 impl Default for OpTable {
   fn default() -> Self {
     fn dummy(
-      _state: &mut JsRuntimeState,
+      _state: std::cell::RefMut<JsRuntimeState>,
       _op_state: Rc<RefCell<OpState>>, 
       _scope: &mut v8::HandleScope,
       _args: v8::FunctionCallbackArguments,

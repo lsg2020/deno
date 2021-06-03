@@ -110,7 +110,8 @@ pub fn op_json2raw<F>(op_fn: F) -> Box<OpFnEx>
 where
 F: Fn(Rc<RefCell<OpState>>, OpPayload) -> Op + 'static,
 {
-  Box::new(move |state: &mut JsRuntimeState, op_state: Rc<RefCell<OpState>>, scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, rv: &mut v8::ReturnValue| {
+  Box::new(move |mut state: std::cell::RefMut<JsRuntimeState>, op_state: Rc<RefCell<OpState>>, scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, rv: &mut v8::ReturnValue| {
+    let state = &mut state;
     // PromiseId
     let arg1 = args.get(1);
     let promise_id = if arg1.is_null_or_undefined() {

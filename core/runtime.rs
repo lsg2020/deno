@@ -536,7 +536,7 @@ impl JsRuntime {
 
   pub fn register_op_ex<F>(&mut self, name: &str, op_fn: F) -> OpId
   where
-    F: Fn(&mut JsRuntimeState, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
+    F: Fn(std::cell::RefMut<JsRuntimeState>, Rc<RefCell<OpState>>, &mut v8::HandleScope, v8::FunctionCallbackArguments, &mut v8::ReturnValue) + 'static,
   {
     Self::state(self.v8_isolate())
       .borrow_mut()
